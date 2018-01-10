@@ -1,0 +1,645 @@
+/*
+ * To change this license header, choose License Headers in Project Properties.
+ * To change this template file, choose Tools | Templates
+ * and open the template in the editor.
+ */
+package com.bliss.service.paymentv2.thrift.client;
+
+import com.bliss.framework.common.Config;
+import com.bliss.framework.util.ConvertUtils;
+import com.bliss.service.paymentv2.thrift.EProductType;
+import com.bliss.service.paymentv2.thrift.EStatus;
+import com.bliss.service.paymentv2.thrift.TInvoiceValue;
+import com.bliss.service.paymentv2.thrift.TProductValue;
+import com.bliss.service.paymentv2.thrift.TPromotionValue;
+import com.bliss.service.paymentv2.thrift.TSpecialDealValue;
+import com.bliss.service.paymentv2.thrift.TUserPromotion;
+import com.bliss.service.thrift.OpAuth;
+import com.bliss.service.thrift.TUserMiniProfile;
+import ga.log4j.GA;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReentrantLock;
+import org.cliffc.high_scale_lib.NonBlockingHashMap;
+
+/**
+ *
+ * @author baotn
+ */
+public class TPaymentV2ThriftClient
+{
+    private final Integer maxPool;
+    private final Integer minPool;
+    private final String host;
+    private final Integer port;
+    private final int timeOut;
+
+    private static final String TAG = TPaymentV2ThriftClient.class.getName();
+
+    private static final Lock createLock = new ReentrantLock();
+    private final ArrayBlockingQueue<PooledClient> queue;
+    private static final long maxRecyleAge = 5 * 60 * 1000;
+    private static final Map<String, TPaymentV2ThriftClient> instances = new NonBlockingHashMap<String, TPaymentV2ThriftClient>();
+
+    public static TPaymentV2ThriftClient getInstance(String name) 
+    {
+        if (!instances.containsKey(name)) 
+        {
+            try 
+            {
+                createLock.lock();
+                if (!instances.containsKey(name)) 
+                {
+                    instances.put(name, new TPaymentV2ThriftClient(name));
+                }
+            } finally 
+            {
+                createLock.unlock();
+            }
+        }
+        return instances.get(name);
+    }
+
+    public TPaymentV2ThriftClient(String name) 
+    {
+        host = Config.getParam(name, "host");
+        port = ConvertUtils.toInt(Config.getParam(name, "port"), 9901);
+        minPool = ConvertUtils.toInt(Config.getParam(name, "minpool"), 16);
+        maxPool = ConvertUtils.toInt(Config.getParam(name, "maxpool"), 1024);
+        timeOut = ConvertUtils.toInt(Config.getParam(name, "time_out"), 60000);
+
+        queue = new ArrayBlockingQueue<>(maxPool);
+    }
+
+    private PooledClient borrowClient() 
+    {
+        PooledClient pooledClient = null;
+        while (queue.size() > 0) 
+        {
+            try 
+            {
+                pooledClient = queue.take();
+            } catch (InterruptedException ex) 
+            {
+
+            }
+            if (pooledClient.isAlive()) 
+            {
+                return pooledClient;
+            }
+        }
+        pooledClient = new PooledClient(host, port, timeOut);
+        return pooledClient;
+    }
+
+    private void returnClient(PooledClient client) 
+    {
+        if (client == null) 
+        {
+            return;
+        }
+        if (queue.size() >= maxPool) 
+        {
+            client.destroy();
+            return;
+        }
+
+        long diffInSec = (System.currentTimeMillis() - client.getDateCreated());
+
+        if (queue.size() > minPool && diffInSec > maxRecyleAge) 
+        {
+            client.destroy();
+            return;
+        }
+        try 
+        {
+            queue.put(client);
+        } catch (InterruptedException ex) 
+        {
+        }
+    }
+
+    private void invalidClient(PooledClient client) 
+    {
+        if (client == null) 
+        {
+            return;
+        }
+        if (client.isAlive()) 
+        {
+            returnClient(client);
+        }
+    }
+    
+    // <editor-fold defaultstate="collapsed" desc="PaymentV2">
+    
+    public Map<EProductType, List<TProductValue>> listProductByUser(TUserMiniProfile profile)
+    {
+        PooledClient client = borrowClient();
+        Map<EProductType, List<TProductValue>> result = new LinkedHashMap<>();
+        try 
+        {
+            result = client.getClient().listProductByUser(profile);
+            returnClient(client);
+        } catch (Exception ex) 
+        {
+            GA.app.error("Error Module : " + TAG + " with message " + ex.getMessage(), ex);
+            invalidClient(client);
+        }
+        return result;
+    }
+
+    public TSpecialDealValue getSpecialDealByUser(long userId)
+    {
+        PooledClient client = borrowClient();
+        TSpecialDealValue result = new TSpecialDealValue();
+        try 
+        {
+            result = client.getClient().getSpecialDealByUser(userId);
+            returnClient(client);
+        } catch (Exception ex) 
+        {
+            GA.app.error("Error Module : " + TAG + " with message " + ex.getMessage(), ex);
+            invalidClient(client);
+        }
+        return result;
+    }
+    
+    // </editor-fold>
+
+    // <editor-fold defaultstate="collapsed" desc="Product">
+    
+    public List<TProductValue> listProduct()
+    {
+        PooledClient client = borrowClient();
+        List<TProductValue> result = new ArrayList();
+        try 
+        {
+            result = client.getClient().listProduct();
+            returnClient(client);
+        } catch (Exception ex) 
+        {
+            GA.app.error("Error Module : " + TAG + " with message " + ex.getMessage(), ex);
+            invalidClient(client);
+        }
+        return result;
+    }
+    
+    public TProductValue addProduct(OpAuth auth, TProductValue product)
+    {
+        PooledClient client = borrowClient();
+        TProductValue result = new TProductValue();
+        try 
+        {
+            result = client.getClient().addProduct(auth, product);
+            returnClient(client);
+        } catch (Exception ex) 
+        {
+            GA.app.error("Error Module : " + TAG + " with message " + ex.getMessage(), ex);
+            invalidClient(client);
+        }
+        return result;
+    }
+
+    public boolean updateProduct(OpAuth auth, TProductValue product)
+    {
+        PooledClient client = borrowClient();
+        boolean result = false;
+        try 
+        {
+            result = client.getClient().updateProduct(auth, product);
+            returnClient(client);
+        } catch (Exception ex) 
+        {
+            GA.app.error("Error Module : " + TAG + " with message " + ex.getMessage(), ex);
+            invalidClient(client);
+        }
+        return result;
+    }
+    
+    public boolean updateProductStatus(OpAuth auth, int productId, EStatus status)
+    {
+        PooledClient client = borrowClient();
+        boolean result = false;
+        try 
+        {
+            result = client.getClient().updateProductStatus(auth, productId, status);
+            returnClient(client);
+        } catch (Exception ex) 
+        {
+            GA.app.error("Error Module : " + TAG + " with message " + ex.getMessage(), ex);
+            invalidClient(client);
+        }
+        return result;
+    }
+    
+    // </editor-fold>
+
+    // <editor-fold defaultstate="collapsed" desc="Promotion">
+    
+    public List<TPromotionValue> listPromotion(long fromDate, long toDate, int page, int offset)
+    {
+        PooledClient client = borrowClient();
+        List<TPromotionValue> result = new ArrayList();
+        try 
+        {
+            result = client.getClient().listPromotion(fromDate, toDate, page, offset);
+            returnClient(client);
+        } catch (Exception ex) 
+        {
+            GA.app.error("Error Module : " + TAG + " with message " + ex.getMessage(), ex);
+            invalidClient(client);
+        }
+        return result;
+    }
+
+    public TPromotionValue addPromotion(OpAuth auth, TPromotionValue promotion)
+    {
+        PooledClient client = borrowClient();
+        TPromotionValue result = new TPromotionValue();
+        try 
+        {
+            result = client.getClient().addPromotion(auth, promotion);
+            returnClient(client);
+        } catch (Exception ex) 
+        {
+            GA.app.error("Error Module : " + TAG + " with message " + ex.getMessage(), ex);
+            invalidClient(client);
+        }
+        return result;
+    }
+    
+    public TPromotionValue getPromotion(int promotionId)
+    {
+        PooledClient client = borrowClient();
+        TPromotionValue result = new TPromotionValue();
+        try 
+        {
+            result = client.getClient().getPromotion(promotionId);
+            returnClient(client);
+        } catch (Exception ex) 
+        {
+            GA.app.error("Error Module : " + TAG + " with message " + ex.getMessage(), ex);
+            invalidClient(client);
+        }
+        return result;
+    }
+
+    public boolean updatePromotion(OpAuth auth, TPromotionValue promotion)
+    {
+        PooledClient client = borrowClient();
+        boolean result = false;
+        try 
+        {
+            result = client.getClient().updatePromotion(auth, promotion);
+            returnClient(client);
+        } catch (Exception ex) 
+        {
+            GA.app.error("Error Module : " + TAG + " with message " + ex.getMessage(), ex);
+            invalidClient(client);
+        }
+        return result;
+    }
+
+    public boolean updatePromotionStatus(OpAuth auth, int promotionId, EStatus status)
+    {
+        PooledClient client = borrowClient();
+        boolean result = false;
+        try 
+        {
+            result = client.getClient().updatePromotionStatus(auth, promotionId, status);
+            returnClient(client);
+        } catch (Exception ex) 
+        {
+            GA.app.error("Error Module : " + TAG + " with message " + ex.getMessage(), ex);
+            invalidClient(client);
+        }
+        return result;
+    }
+    
+    // </editor-fold>
+
+    // <editor-fold defaultstate="collapsed" desc="SpecialDeal">
+    
+    public List<TSpecialDealValue> listSpecialDeal(long fromDate, long toDate, int page, int offset)
+    {
+        PooledClient client = borrowClient();
+        List<TSpecialDealValue> result = new ArrayList();
+        try 
+        {
+            result = client.getClient().listSpecialDeal(fromDate, toDate, page, offset);
+            returnClient(client);
+        } catch (Exception ex) 
+        {
+            GA.app.error("Error Module : " + TAG + " with message " + ex.getMessage(), ex);
+            invalidClient(client);
+        }
+        return result;
+    }
+
+    public List<TSpecialDealValue> listSpecialDealByUser(long userId, long fromDate, long toDate, int page, int offset)
+    {
+        PooledClient client = borrowClient();
+        List<TSpecialDealValue> result = new ArrayList();
+        try 
+        {
+            result = client.getClient().listSpecialDealByUser(userId, fromDate, toDate, page, offset);
+            returnClient(client);
+        } catch (Exception ex) 
+        {
+            GA.app.error("Error Module : " + TAG + " with message " + ex.getMessage(), ex);
+            invalidClient(client);
+        }
+        return result;
+    }
+
+    public List<TSpecialDealValue> listSpecialDealByStatus(long fromDate, long toDate, int page, int offset, EStatus status)
+    {
+        PooledClient client = borrowClient();
+        List<TSpecialDealValue> result = new ArrayList();
+        try 
+        {
+            result = client.getClient().listSpecialDealByStatus(fromDate, toDate, page, offset, status);
+            returnClient(client);
+        } catch (Exception ex) 
+        {
+            GA.app.error("Error Module : " + TAG + " with message " + ex.getMessage(), ex);
+            invalidClient(client);
+        }
+        return result;
+    }
+
+    public TSpecialDealValue addSpecialDeal(OpAuth auth, TSpecialDealValue specialDeal)
+    {
+        PooledClient client = borrowClient();
+        TSpecialDealValue result = new TSpecialDealValue();
+        try 
+        {
+            result = client.getClient().addSpecialDeal(auth, specialDeal);
+            returnClient(client);
+        } catch (Exception ex) 
+        {
+            GA.app.error("Error Module : " + TAG + " with message " + ex.getMessage(), ex);
+            invalidClient(client);
+        }
+        return result;
+    }
+    
+    public TSpecialDealValue getSpecialDeal(long specialDealId)
+    {
+        PooledClient client = borrowClient();
+        TSpecialDealValue result = new TSpecialDealValue();
+        try 
+        {
+            result = client.getClient().getSpecialDeal(specialDealId);
+            returnClient(client);
+        } catch (Exception ex) 
+        {
+            GA.app.error("Error Module : " + TAG + " with message " + ex.getMessage(), ex);
+            invalidClient(client);
+        }
+        return result;
+    }
+
+    public boolean updateSpecialDeal(OpAuth auth, TSpecialDealValue specialDeal)
+    {
+        PooledClient client = borrowClient();
+        boolean result = false;
+        try 
+        {
+            result = client.getClient().updateSpecialDeal(auth, specialDeal);
+            returnClient(client);
+        } catch (Exception ex) 
+        {
+            GA.app.error("Error Module : " + TAG + " with message " + ex.getMessage(), ex);
+            invalidClient(client);
+        }
+        return result;
+    }
+
+    public boolean updateSpecialDealStatus(OpAuth auth, long specialDealId, EStatus status)
+    {
+        PooledClient client = borrowClient();
+        boolean result = false;
+        try 
+        {
+            result = client.getClient().updateSpecialDealStatus(auth, specialDealId, status);
+            returnClient(client);
+        } catch (Exception ex) 
+        {
+            GA.app.error("Error Module : " + TAG + " with message " + ex.getMessage(), ex);
+            invalidClient(client);
+        }
+        return result;
+    }
+    
+    // </editor-fold>
+
+    // <editor-fold defaultstate="collapsed" desc="UserPromotion">
+    
+    public List<TUserPromotion> listUserPromotion()
+    {
+        PooledClient client = borrowClient();
+        List<TUserPromotion> result = new ArrayList();
+        try 
+        {
+            result = client.getClient().listUserPromotion();
+            returnClient(client);
+        } catch (Exception ex) 
+        {
+            GA.app.error("Error Module : " + TAG + " with message " + ex.getMessage(), ex);
+            invalidClient(client);
+        }
+        return result;
+    }
+
+    public TUserPromotion addUserPromotion(OpAuth auth, TUserPromotion userPromotion)
+    {
+        PooledClient client = borrowClient();
+        TUserPromotion result = new TUserPromotion();
+        try 
+        {
+            result = client.getClient().addUserPromotion(auth, userPromotion);
+            returnClient(client);
+        } catch (Exception ex) 
+        {
+            GA.app.error("Error Module : " + TAG + " with message " + ex.getMessage(), ex);
+            invalidClient(client);
+        }
+        return result;
+    }
+
+    public boolean updateUserPromotion(OpAuth auth, TUserPromotion userPromotion)
+    {
+        PooledClient client = borrowClient();
+        boolean result = false;
+        try 
+        {
+            result = client.getClient().updateUserPromotion(auth, userPromotion);
+            returnClient(client);
+        } catch (Exception ex) 
+        {
+            GA.app.error("Error Module : " + TAG + " with message " + ex.getMessage(), ex);
+            invalidClient(client);
+        }
+        return result;
+    }
+    
+    // </editor-fold>
+
+    // <editor-fold defaultstate="collapsed" desc="Invoice">
+    
+    public List<TInvoiceValue> listInvoice(long fromDate, long toDate, int page, int offset)
+    {
+        PooledClient client = borrowClient();
+        List<TInvoiceValue> result = new ArrayList();
+        try 
+        {
+            result = client.getClient().listInvoice(fromDate, toDate, page, offset);
+            returnClient(client);
+        } catch (Exception ex) 
+        {
+            GA.app.error("Error Module : " + TAG + " with message " + ex.getMessage(), ex);
+            invalidClient(client);
+        }
+        return result;
+    }
+    
+    public List<TInvoiceValue> listInvoiceByProductType(EProductType productType, long fromDate, long toDate, int page, int offset)
+    {
+        PooledClient client = borrowClient();
+        List<TInvoiceValue> result = new ArrayList();
+        try 
+        {
+            result = client.getClient().listInvoiceByProductType(productType, fromDate, toDate, page, offset);
+            returnClient(client);
+        } catch (Exception ex) 
+        {
+            GA.app.error("Error Module : " + TAG + " with message " + ex.getMessage(), ex);
+            invalidClient(client);
+        }
+        return result;
+    }
+    
+    public List<TInvoiceValue> listInvoiceByUser(long userId, long fromDate, long toDate, int page, int offset)
+    {
+        PooledClient client = borrowClient();
+        List<TInvoiceValue> result = new ArrayList();
+        try 
+        {
+            result = client.getClient().listInvoiceByUser(userId, fromDate, toDate, page, offset);
+            returnClient(client);
+        } catch (Exception ex) 
+        {
+            GA.app.error("Error Module : " + TAG + " with message " + ex.getMessage(), ex);
+            invalidClient(client);
+        }
+        return result;
+    }
+    
+    public TInvoiceValue getInvoice(long invoiceId)
+    {
+        PooledClient client = borrowClient();
+        TInvoiceValue result = new TInvoiceValue();
+        try 
+        {
+            result = client.getClient().getInvoice(invoiceId);
+            returnClient(client);
+        } catch (Exception ex) 
+        {
+            GA.app.error("Error Module : " + TAG + " with message " + ex.getMessage(), ex);
+            invalidClient(client);
+        }
+        return result;
+    }
+    
+    public TInvoiceValue reProcessInvoice(long invoiceId)
+    {
+        PooledClient client = borrowClient();
+        TInvoiceValue result = new TInvoiceValue();
+        try 
+        {
+            result = client.getClient().reProcessInvoice(invoiceId);
+            returnClient(client);
+        } catch (Exception ex) 
+        {
+            GA.app.error("Error Module : " + TAG + " with message " + ex.getMessage(), ex);
+            invalidClient(client);
+        }
+        return result;
+    }
+
+    public TInvoiceValue updateRefund(long invoiceId)
+    {
+        PooledClient client = borrowClient();
+        TInvoiceValue result = new TInvoiceValue();
+        try 
+        {
+            result = client.getClient().updateRefund(invoiceId);
+            returnClient(client);
+        } catch (Exception ex) 
+        {
+            GA.app.error("Error Module : " + TAG + " with message " + ex.getMessage(), ex);
+            invalidClient(client);
+        }
+        return result;
+    }
+    
+    // </editor-fold>
+
+    // <editor-fold defaultstate="collapsed" desc="Service Base 2">
+    
+    public boolean shutdown(OpAuth auth) 
+    {
+        PooledClient client = borrowClient();
+        boolean result = false;
+        try 
+        {
+            result = client.getClient().shutdown(auth);
+            returnClient(client);
+        } catch (Exception ex) 
+        {
+            GA.app.error("Error Module : " + TAG + " with message " + ex.getMessage(), ex);
+            invalidClient(client);
+        }
+        return result;
+    }
+
+    public boolean reloadConfig() 
+    {
+        PooledClient client = borrowClient();
+        boolean result = false;
+        try 
+        {
+            result = client.getClient().reloadConfig();
+            returnClient(client);
+        } catch (Exception ex) 
+        {
+            GA.app.error("Error Module : " + TAG + " with message " + ex.getMessage(), ex);
+            invalidClient(client);
+        }
+        return result;
+    }
+
+    public boolean ping() 
+    {
+        PooledClient client = borrowClient();
+        boolean result = false;
+        try 
+        {
+            result = client.getClient().ping();
+            returnClient(client);
+        } catch (Exception ex) 
+        {
+            GA.app.error("Error Module : " + TAG + " with message " + ex.getMessage(), ex);
+            invalidClient(client);
+        }
+        return result;
+    }
+    
+    // </editor-fold>
+}

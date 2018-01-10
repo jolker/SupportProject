@@ -1,0 +1,70 @@
+package com.bliss.account.jdbc;
+
+import java.util.Date;
+
+import javax.persistence.criteria.CriteriaBuilder;
+import javax.persistence.criteria.CriteriaQuery;
+import javax.persistence.criteria.Root;
+
+import org.hibernate.LockOptions;
+import org.hibernate.Session;
+import org.hibernate.query.Query;
+
+import com.bliss.account.model.Account;
+
+public class AccountDAOImpl implements AccountDAO {
+	private static AccountDAOImpl instance = null;
+	public static AccountDAOImpl getInstance() {
+		if (instance == null) {
+			synchronized(AccountDAOImpl.class) {
+				instance = new AccountDAOImpl();
+			}
+		}
+		return instance;
+	}
+
+	public AccountDAOImpl() {}
+
+	@Override
+	public Account save(Session session, Account account) throws Exception {
+		account.setCreatedAt(new Date());
+		session.save(account);
+		account.setId(account.getId());
+		return account;
+	}
+
+	@Override
+	public Account update(Session session, Account account) throws Exception {
+		account.setUpdatedAt(new Date());
+		session.update(account);
+		return account;
+	}
+
+	@Override
+	public Account find(Session session, String userName) throws Exception {
+		CriteriaBuilder builder = session.getCriteriaBuilder();
+		CriteriaQuery<Account> query = builder.createQuery(Account.class);
+		Root<Account> root = query.from(Account.class);
+		query.select(root).where(builder.equal(root.get("userName"), userName));
+		Query<Account> q = session.createQuery(query);
+		return q.getSingleResult();
+	}
+	
+	@Override
+	public Account find(Session session, String userName, String password) throws Exception {
+		CriteriaBuilder builder = session.getCriteriaBuilder();
+		CriteriaQuery<Account> query = builder.createQuery(Account.class);
+		Root<Account> root = query.from(Account.class);
+		query.select(root).where(builder.equal(root.get("userName"), userName),
+				builder.equal(root.get("passWord"), password));
+		Query<Account> q = session.createQuery(query);
+		return q.getSingleResult();
+	}
+	
+	@Override
+	public Account find(Session session, long id, boolean forUpdate) throws Exception {
+		Account account = (Account)session.get(Account.class, id, forUpdate?LockOptions.UPGRADE:LockOptions.NONE);
+		return account;
+	}
+
+}

@@ -1,0 +1,6 @@
+[thrift_paymentv2_client]
+host=192.168.12.246
+port=9400
+minpool=16
+maxpool=1024
+time_out=60000

@@ -1,0 +1,49 @@
+namespace java com.bliss.service.thrift
+
+enum EUserGroup {
+	FREE_USER = 0,
+	VIP0_USER = 1,
+	VIP1_USER = 2,
+	VIP2_USER = 3,
+	VIP3_USER = 4,
+	VIP4_USER = 5,
+	VIP5_USER = 6,
+	VIP6_USER = 7
+}
+
+enum EEventUserGroup {
+	ALL_USERS = 0,
+	NEW_USER = 1,
+	FREE_USER = 2,
+	PAID_PAID = 3,
+	VIP_USER = 4
+}
+
+struct OpAuth {
+ 1: string auth_key,
+ 2: string source
+}
+
+struct TUserMiniProfile {
+ 1: i64 userId,
+ 2: string userName,
+ 3: string appPackageId,
+ 4: string appPlatform,
+ 5: string appVersion,
+ 6: i64 nCoin,
+ 7: EUserGroup userGroup,
+ 8: bool showPayment,
+ 9: i64 registerDate,
+ 10: string sessionID,
+ 11: string userIP,
+ 12: string utm_source,
+ 13: string campaign,
+ 14: i32 currentPlayGameId
+ 15: i32 currentGameRoomMoney
+}
+
+service TServiceBase2 {
+ bool shutdown(1: OpAuth auth),
+ bool reloadConfig(),
+ bool ping()
+}

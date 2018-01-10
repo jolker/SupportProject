@@ -1,0 +1,5 @@
+[xAccount_database]
+driver=com.mysql.jdbc.Driver
+url=jdbc:mysql://127.0.0.1:3306/bliss_xaccount?characterEncoding=utf-8
+user_name=root
+password=root

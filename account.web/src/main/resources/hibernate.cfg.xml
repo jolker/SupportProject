@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE hibernate-mapping PUBLIC "-//Hibernate/Hibernate Mapping DTD 3.0//EN"
+                                   "http://hibernate.sourceforge.net/hibernate-mapping-3.0.dtd">
+<hibernate-mapping>
+	
+	<class name="com.bliss.account.model.Account" table="xAccount">
+		<id column="id" name="id" type="integer"><generator class="native" /></id>
+		<property name="userName" column="user_name" generated="never" lazy="false" type="string" length="50" not-null="true" />
+		<property name="passWord" column="pass_word" generated="never" lazy="false" type="string" length="100" not-null="true" />
+		<property name="status" column="status_" generated="never" lazy="false" >
+			<type name="org.hibernate.type.EnumType">
+				<param name="enumClass">com.bliss.account.model.Account$Status</param>
+			</type>
+		</property>
+		<property name="role" column="role" generated="never" lazy="false" >
+			<type name="org.hibernate.type.EnumType">
+				<param name="enumClass">com.bliss.account.model.Account$Role</param>
+			</type>
+		</property>
+		<property name="expiredAt" column="expired_at" generated="never" lazy="false" type="java.util.Date" />
+		<property name="createdAt" column="created_at" generated="never" lazy="false" type="java.util.Date" not-null="true" update="false" />
+		<property name="updatedAt" column="updated_at" generated="never" lazy="false" type="java.util.Date" />
+	</class>
+
+</hibernate-mapping>

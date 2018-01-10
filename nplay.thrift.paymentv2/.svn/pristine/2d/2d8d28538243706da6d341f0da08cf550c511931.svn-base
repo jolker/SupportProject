@@ -1,0 +1,181 @@
+include "TServiceBase2.thrift"
+
+namespace java com.bliss.service.paymentv2.thrift
+
+enum EProductType 
+{
+	INAPP = 0,
+	CARD = 1,
+	SMS = 2
+}
+
+enum EPromotionType 
+{
+	DEFAULT = 0,
+	SPECIALDEAL = 1,
+	POPULAR = 2,
+	BESTDEAL = 3
+}
+
+enum EStatus
+{
+	INACTIVE = 0,
+	ACTIVE = 1
+}
+
+struct TProductValue
+{
+	1: i32 productId,																	// 1					
+	2: string appPackageId,																// com.nplay.superpro
+	3: string productKey,																// 0.99 | SMS_3000 | CARD_20000
+	4: EProductType productType,                                            			// inapp | card | sms
+	5: i32 amount,																		// 10000
+	6: string messageConfig,															// MW 3000 NP NAP [user_id]
+	7: string prefix,																	// MW 3000 NP NAP BAOBAO ===> 9029 đầu số để gửi SMS
+	8: i64 nCoin,																		// 20000 
+	9: EStatus status,																	// 1
+	10: i32 promotionRate,																// không lưu trong db
+	11: EPromotionType promotionType                                        			// không lưu trong db
+}
+
+struct TPromotionValue
+{
+	1: i32 promotionId,																	// 1
+	2: string promotionRateData,                                            			// [{"ProductKey":0.99,"PromotionRate":70,"EPromotionType":1},{"ProductKey":0.99,"PromotionRate":70,"EPromotionType":1}]
+	3: TServiceBase2.EEventUserGroup promotionUserGroup,								// ALL_USERS | NEW_USER | FREE_USER | PAID_USER | VIP_USER
+	4: string promotionName,
+	5: i32 priority,																	// 3
+	6: string description,
+	7: EStatus status,																	// 1
+	8: i64 dateBegin,																	// 2017-12-01 11:11:11
+	9: i64 dateEnd,																		// 2017-12-10 11:11:11
+	10: i64 dateCreated,																// 2017-11-30 11:11:11
+	11: string userCreated,                                                 			// baotn
+	12: i64 dateModified,																// 2017-11-30 12:12:12
+	13: string userModified																// anhtst	
+}
+
+struct TSpecialDealValue 
+{
+	1: i64 specialDealId,
+	2: i64 userId,
+	3: string userName,
+	4: string promotionRateData,                                            			// [{"ProductKey":0.99,"PromotionRate":70,"EPromotionType":1},{"ProductKey":0.99,"PromotionRate":70,"EPromotionType":1}]
+	5: string campaignName,
+    6: i64 currentNCoin,
+	7: string description,
+	8: EStatus status,
+	9: byte purchased,																	// 1 : đã thanh toán hay chưa?
+	10: i64 dateBegin,
+	11: i64 dateEnd,	
+	12: i64 dateCreated,
+	13: string userCreated,
+	14: i64 dateModified,
+	15: string userModified                                                    			   
+}
+
+struct TInvoiceValue
+{
+	1: i64 invoiceId,                                                       			// 1
+	
+	// users
+	2: i64 userId,																		// 123							
+	3: string userName,																	// player123					
+	4: string userIp,																	// 192.168.23.04				
+	5: TServiceBase2.EUserGroup userGroup,																		
+	6: string sourceName,																// facebook ad					
+	7: string marketingCampaign,                                            			// facebook campaign                            
+	8: string appPackageId,																// com.nplay.superpro                          
+	9: string appPlatform,																// iOS						
+	10: i64 nCoinBefore,																// 50000					
+	11: i64 userRetention,																// now - register date by Date	
+	
+	// product
+	12: i32 productId,
+	13: string productKey,																// com.nplay.superpro.0.99		
+	14: EProductType productType,                                           			// inapp						
+	15: i32 amount,																		// 10000
+	16: i64 nCoinPaid,																	// 20000
+	
+	// promotion
+	17: i64 refId,																		// link to promotion or specialdeal
+	18: EPromotionType promotionType,							
+	19: i32 promotionRate,																// 50	
+	20: i64 nCoinPromotion,																// 14000
+	21: string localCampaign,															// promotionName hoặc campaignName
+	
+	// processed
+	22: byte status,																	// 1 : xử lý xong hay chưa?
+	23: string data,																	// receipt | series card		
+	24: string partnerId,																// transactionID with partner
+	25: byte partnerStatus,																// 1		
+	26: i64 purchasedDate,																// 2017-12-02 11:11:11
+	27: i64 completedDate																// 2017-12-02 11:12:11	
+}
+
+struct TUserPromotion 
+{
+	1: TServiceBase2.EUserGroup userGroup,
+	2: i32 addedPromotionRate,
+	3: i64 dateCreated,
+	4: string userCreated,
+	5: i64 dateModified,
+	6: string userModified
+}
+
+service TPaymentV2 extends TServiceBase2.TServiceBase2 
+{
+// 	Client 
+
+//	Web Payment
+	
+	list<TProductValue> listProductByUserWebPayment(1: TServiceBase2.TUserMiniProfile profile),
+	string processPaymentCard(1: TServiceBase2.OpAuth auth, 2: TInvoiceValue invoice),
+
+// 	PaymentV2BC
+
+	map<EProductType, list<TProductValue>> listProductByUser(1: TServiceBase2.TUserMiniProfile profile),
+	TSpecialDealValue getSpecialDealByUser(1: i64 userId), 
+	
+//	Admin
+
+// 	ProductBC
+	list<TProductValue> listProduct(),
+	TProductValue addProduct(1: TServiceBase2.OpAuth auth, 2: TProductValue product),
+	bool updateProduct(1: TServiceBase2.OpAuth auth, 2: TProductValue product),
+	bool updateProductStatus(1: TServiceBase2.OpAuth auth, 2: i32 productId, 3: EStatus status ),
+
+// 	PromotionBC
+
+	list<TPromotionValue> listPromotion(1: i64 fromDate, 2: i64 toDate, 3: i32 page, 4: i32 offset),
+	TPromotionValue addPromotion(1: TServiceBase2.OpAuth auth, 2: TPromotionValue promotion),
+	TPromotionValue getPromotion(1: i32 promotionId),
+	bool updatePromotion(1: TServiceBase2.OpAuth auth, 2: TPromotionValue promotion),
+	bool updatePromotionStatus(1: TServiceBase2.OpAuth auth, 2: i32 promotionId, 3: EStatus status),
+
+// 	SpecialDealBC
+
+	list<TSpecialDealValue> listSpecialDeal(1: i64 fromDate, 2: i64 toDate, 3: i32 page, 4: i32 offset),
+	list<TSpecialDealValue> listSpecialDealByUser(1: i64 userId, 2: i64 fromDate, 3: i64 toDate, 4: i32 page, 5: i32 offset),	
+	list<TSpecialDealValue> listSpecialDealByStatus(1: i64 fromDate, 2: i64 toDate, 3: i32 page, 4: i32 offset, 5: EStatus status),
+	TSpecialDealValue addSpecialDeal(1: TServiceBase2.OpAuth auth, 2: TSpecialDealValue specialDeal),
+	list<TSpecialDealValue> addSpecialDealList(1: TServiceBase2.OpAuth auth, 2: list<TSpecialDealValue> specialDealList),
+	TSpecialDealValue getSpecialDeal(1: i64 specialDealId),
+	bool updateSpecialDeal(1: TServiceBase2.OpAuth auth, 2: TSpecialDealValue specialDeal),
+	bool updateSpecialDealStatus(1: TServiceBase2.OpAuth auth, 2: i64 specialDealId, 3: EStatus status),
+
+// 	UserPromotionBC
+	
+	list<TUserPromotion> listUserPromotion(),	
+	TUserPromotion addUserPromotion(1: TServiceBase2.OpAuth auth, 2: TUserPromotion userPromotion),
+	bool updateUserPromotion(1: TServiceBase2.OpAuth auth, 2: TUserPromotion userPromotion),
+
+// 	InvoiceBC
+	
+	list<TInvoiceValue> listInvoice(1: i64 fromDate, 2: i64 toDate, 3: i32 page, 4: i32 offset),
+	list<TInvoiceValue> listInvoiceByProductType(1: EProductType productType, 2: i64 fromDate, 3: i64 toDate, 4: i32 page, 5: i32 offset),
+	list<TInvoiceValue> listInvoiceByUser(1: i64 userId, 2: i64 fromDate, 3: i64 toDate, 4: i32 page, 5: i32 offset),
+	TInvoiceValue getInvoice(1: i64 invoiceId),
+	TInvoiceValue reProcessInvoice(1: i64 invoiceId),
+	TInvoiceValue updateRefund(1: i64 invoiceId)
+}

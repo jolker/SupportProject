@@ -1,0 +1,152 @@
+package com.bliss.core.lib.elasticsearch;
+
+import ga.log4j.GA;
+
+import java.io.IOException;
+import java.net.InetAddress;
+import java.net.UnknownHostException;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.TimeUnit;
+
+import org.apache.commons.lang.StringUtils;
+import org.elasticsearch.action.search.SearchRequestBuilder;
+import org.elasticsearch.action.search.SearchResponse;
+import org.elasticsearch.action.search.SearchType;
+import org.elasticsearch.client.transport.TransportClient;
+import org.elasticsearch.common.settings.Settings;
+import org.elasticsearch.common.transport.TransportAddress;
+import org.elasticsearch.index.query.BoolQueryBuilder;
+import org.elasticsearch.index.query.QueryBuilders;
+import org.elasticsearch.search.SearchHit;
+import org.elasticsearch.search.SearchHits;
+import org.elasticsearch.search.sort.SortOrder;
+import org.elasticsearch.transport.client.PreBuiltTransportClient;
+
+import com.bliss.core.lib.DataFilter;
+import com.bliss.core.lib.DataObject;
+import com.bliss.core.lib.PageView;
+import com.bliss.core.lib.exception.DataException;
+import com.bliss.framework.common.Config;
+import com.bliss.framework.util.ConvertUtils;
+/**
+ * 
+ * @author tuyenpv
+ *
+ */
+public abstract class ElasticSearchAccess<T extends DataObject, F extends DataFilter> {
+	protected static final String DOCUMENT_ID = "_id";
+
+	private int port;
+	private String hostName;
+	private String clusterName;
+
+	private TransportClient client = null;
+
+	private void initializeConfig() throws IllegalArgumentException {
+		port = ConvertUtils.toInt(Config.getParam("elastic_search", "elastic_port"), 9300);
+		hostName = ConvertUtils.toString(Config.getParam("elastic_search", "elastic_host"), "192.168.12.246");		
+		clusterName = ConvertUtils.toString(Config.getParam("elastic_search", "elastic_cluster_name"), "elasticsearch");	
+	}
+
+	@SuppressWarnings("resource")
+	private void createConnection() throws UnknownHostException {
+		initializeConfig();
+		Settings settings = Settings.builder()
+				.put("cluster.name", clusterName)
+				.put("client.transport.sniff", true)
+				.put("client.transport.ping_timeout", 60, TimeUnit.SECONDS)
+				.build();
+		client = new PreBuiltTransportClient(settings).addTransportAddress(
+				new TransportAddress(InetAddress.getByName(hostName), port));
+
+		GA.app.info("initialization elasticSearch successfully. Infos elastic_host: " + hostName 
+				+ " elastic_port: " + port + " elastic_cluster_name: " + clusterName);
+	}
+
+	private void verifyConnection() throws UnknownHostException {
+		if (client == null)
+			createConnection();
+	}
+
+	protected void destroyConnection() {
+		if (client == null) 
+			return;
+
+		client.close();
+		client = null;
+
+		GA.app.info("elasticSearch destroyed");
+	}
+
+	private SearchRequestBuilder requestBuilder(F filter) throws IOException {
+		BoolQueryBuilder queryBuilder = QueryBuilders.boolQuery();
+		queryBuilder.must(QueryBuilders.matchAllQuery());
+		// query condition
+		if (!StringUtils.isBlank(filter.getStringValue("q")))
+			queryBuilder.must(QueryBuilders.queryStringQuery(filter.getStringValue("q")));
+
+		queryBuilder(filter, queryBuilder);
+
+		verifyConnection();
+
+		SearchRequestBuilder reqBuilder = client.prepareSearch(getIndexPattern()).setSearchType(SearchType.DEFAULT);
+		// sort asc?desc
+		if (filter.getOrderBy() != null) {
+			SortOrder orderType = filter.isAsc()?SortOrder.ASC:SortOrder.DESC;
+			reqBuilder.addSort(filter.getOrderBy(), orderType);
+		}
+		
+		// condition
+		reqBuilder.setQuery(queryBuilder);
+
+		// paging
+		reqBuilder.setFrom((filter.getPageNumber() - 1)*filter.getPageSize()).setSize(filter.getPageSize());
+
+		return reqBuilder;
+	}
+
+	protected T doGet(String documentId) throws Exception {
+		BoolQueryBuilder queryBuilder = QueryBuilders.boolQuery();
+		queryBuilder.must(QueryBuilders.matchAllQuery());
+		queryBuilder.must(QueryBuilders.matchQuery(DOCUMENT_ID, documentId));
+
+		verifyConnection();
+
+		// condition
+		SearchRequestBuilder reqBuilder = client.prepareSearch(getIndexPattern()).setSearchType(SearchType.DEFAULT);
+		reqBuilder.setQuery(queryBuilder);
+
+		// execute query
+		SearchResponse searchReps = reqBuilder.execute().actionGet();
+		if (searchReps.getHits().totalHits == 0)
+			throw new DataException("not found documentId: " + documentId);
+
+		SearchHit hit = searchReps.getHits().getAt(0);		
+		return deserializer(hit);
+	}
+
+	protected PageView<T> doSearch(F filter) throws Exception {
+		SearchRequestBuilder reqBuilder = requestBuilder(filter);
+		// execute query
+		SearchResponse searchReps = reqBuilder.execute().actionGet();
+		SearchHits hits = searchReps.getHits();
+		List<T> listT = new ArrayList<T>();
+		for (SearchHit hit : hits.getHits()) {
+			listT.add(deserializer(hit));
+		}
+		// result query
+		PageView<T> pv = new PageView<T>(listT);
+		pv.setTotalItems(hits.getTotalHits());
+		pv.setPageNumber(filter.getPageNumber());
+		pv.setPageSize(filter.getPageSize());
+		return pv;
+	}
+
+	protected abstract String getIndexPattern();
+
+	protected abstract T deserializer(SearchHit hit) throws Exception;
+
+	protected abstract void queryBuilder(F filter, BoolQueryBuilder queryBuilder);
+
+}

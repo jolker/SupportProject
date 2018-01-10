@@ -1,0 +1,6 @@
+[thrift_eventv3_server]
+host=127.0.0.1
+port=9669
+minpool=16
+maxpool=1024
+time_out=60000
